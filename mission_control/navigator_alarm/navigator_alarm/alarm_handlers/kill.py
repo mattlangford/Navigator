@@ -1,22 +1,21 @@
 #!/usr/bin/env python
 import rospy
 from kill_handling.broadcaster import KillBroadcaster
+from _template import HandlerBase
 
-
-class Handler(object):
+class Handler(HandlerBase):
     alarm_name = 'kill'
 
     def __init__(self):
-        # Keep some knowledge of which thrusters we have working
         self.kb = KillBroadcaster(id='alarm-kill', description='Kill by alarm')
         self.alarms = {}
 
-    def handle(self, time_sent, parameters, alarm_name):
-        self.alarms[alarm_name] = True
+    def handle(self, alarm, time_sent, parameters):
+        self.alarms[alarm.alarm_name] = True
         self.kb.send(active=True)
 
-    def cancel(self, time_sent, parameters, alarm_name):
-        self.alarms[alarm_name] = False
+    def cancel(self, alarm, time_sent, parameters):
+        self.alarms[alarm.alarm_name] = False
 
         # Make sure that ALL alarms that caused a kill have been cleared
         if not any(self.alarms.values()):
