@@ -7,6 +7,7 @@ import tf
 
 import numpy as np
 import navigator_tools
+import navigator_alarm
 from nav_msgs.msg import Odometry, OccupancyGrid
 from navigator_msgs.msg import PoseTwistStamped
 from geometry_msgs.msg import PoseStamped, PoseArray, PointStamped
@@ -17,6 +18,33 @@ import setup_lqrrt as sl
 from thread_queue import ThreadQueue
 
 print_t = navigator_tools.print_t
+
+class reportrunning(object):
+    '''
+    The idea is to have a decorator that will automatically report wether any arbirary function
+        is running.
+    '''
+    _running = {}
+
+    def __init__(self, f):
+        self.function = f
+        self._running[self.function.__name__] = False
+
+    def __call__(self, *args, **kwargs):
+        def call_with_self(_self, *args, **kwargs):
+            self._running[self.function.__name__] = True
+            print "running"
+            ret = self.function(_self, *args, **kwargs)
+            print "done"
+            self._running[self.function.__name__] = False
+            return ret
+        return call_with_self
+
+    @classmethod
+    def check_running(cls, f_name):
+        is_running = cls._running[f_name] if f_name in cls._running else False
+        return is_running
+
 
 class NavPlanner(object):
     def __init__(self, plan_time):
@@ -33,7 +61,10 @@ class NavPlanner(object):
         self.state = None
         self.ogrid = None
         self.done = True
+
+        # For reporting
         self.cant_complete = False
+        self.path_contact = False
 
         rospy.Subscriber("/odom", Odometry, lambda msg: setattr(self, "state", self.state_from_odom(msg)))
         rospy.Subscriber("/ogrid", OccupancyGrid, self.ogrid_cb)
@@ -104,6 +135,7 @@ class NavPlanner(object):
 
         return [x, y, heading, vx, vy, w]
 
+    #@reportrunning
     def update_plan(self, do_immediate=False, planner=None, *args):
         if self.done and not do_immediate:
             return
@@ -136,7 +168,7 @@ class NavPlanner(object):
 
         elif self.planner.tree.size == 1:
             # Most likely stuck
-            print_t("Fuck a duck, we're stuck")
+            print_t("Most likely stuck")
             next_updater = lambda: self.update_plan(planner=None)
             self.cant_complete = True  #<<<
             return  #<<<
@@ -202,7 +234,8 @@ class NavPlanner(object):
         pose_array.poses = pose_array_list
         self.tree_vis_pub.publish(pose_array)
 
-    def path_still_feasible(self):
+    #@reportrunning
+    def is_path_still_feasible(self):
         for i, (x, u) in enumerate(zip(self.planner.x_seq, self.planner.u_seq)):
             if self.is_feasible(x, u):
                 continue
@@ -211,7 +244,8 @@ class NavPlanner(object):
             if time_to_hit <= 0:
                 continue
 
-            def replan():
+            #@reportrunning
+            def replanning():
                 print_t("Replanning for impact")
                 self.thread_queue.clear()
                 self.update_plan(do_immediate=True)
@@ -230,7 +264,7 @@ class NavPlanner(object):
             else:
                 print_t("IMPACT DETECTED ({}s)".format(time_to_hit))
 
-            self.thread_queue.put(replan)
+            self.thread_queue.put(replanning)
 
             # Publish the impact point
             ps = PointStamped()
@@ -276,7 +310,7 @@ class NavPlanner(object):
         self.ogrid_origin = np.array([msg.info.origin.position.x, msg.info.origin.position.y])
         self.ogrid_cpm = 1 / msg.info.resolution
 
-        self.thread_queue.put(self.path_still_feasible, rospy.Time.now().to_sec())
+        self.thread_queue.put(self.is_path_still_feasible, rospy.Time.now().to_sec())
 
     def sample_space(self, start):
         buff = 20
@@ -301,9 +335,34 @@ class ActionLink(NavPlanner):
                                                       execute_cb=self.got_wp,
                                                       auto_start=False)
         self.wp_server.start()
+        self.run_reporter = reportrunning
 
         # Contains most of the class variables used here and the interface to lqrrt
         super(ActionLink, self).__init__(plan_time)
+
+    def create_alarms(self):
+        listener = navigator_alarm.AlarmListener()
+        broadcaster = navigator_alarm.AlarmBroadcaster()
+
+        # Listeners
+        self.kill_listener = listener.add_listener("kill", self.alarm_kill)
+
+        # Broadcasters
+        stuck_msg = "It looks like the trajectory generator caused us to get stuck - it will try to fix it now."
+        self.stuck_alarm = broadcaster.add_alarm(name="tgen_stuck",
+                                                 problem_description=stuck_msg)
+
+        stuck_severe_msg = "Could not escape from stuck condition."
+        self.severe_stuck_alarm = broadcaster.add_alarm(name="tgen_stuck_severe",
+                                                 action_required=True,
+                                                 problem_description=stuck_severe_msg)
+
+        path_msg = "An undected object was detected and is in our planned path."
+        self.path_contact_alarm = broadcaster.add_alarm(name="path_contact",
+                                                 problem_description=path_msg)
+
+    def alarm_kill(self, alarm):
+        pass
 
     def got_wp(self, a_goal):
         print_t("Goal received")
@@ -350,7 +409,7 @@ class ActionLink(NavPlanner):
 
             if self.cant_complete:
                 print_t("Unable to finish :(")
-                self.state = np.zeros(6)  # Temp
+                self.state = np.zeros(6)  #<<<
                 self.thread_queue.put(self.safe_cancel)
                 self._result.made_it = False
                 self._result.reason = "Probably got stuck"
@@ -379,6 +438,9 @@ class ActionLink(NavPlanner):
         self._feedback.time_to_completion = self.planner.T - time_into_plan
         self._feedback.time_to_replan = self.planner.T - time_into_plan - self.plan_time
         self._feedback.time_for_replan = self.plan_time
+
+        #self._feedback.replanning = self.run_reporter.check_running("update_plan")
+
         return self.wp_server.publish_feedback(self._feedback)
 
         # float32 time_to_completion
@@ -403,7 +465,7 @@ class ActionLink(NavPlanner):
 
 if __name__ == "__main__":
     rospy.init_node("navigation_planner")
-    ac = ActionLink(rospy.get_param("plan_time", 3))
+    ac = ActionLink(rospy.get_param("plan_time", 10))
     # n = NavPlanner()
 
     rospy.spin()

@@ -24,7 +24,7 @@ def main():
 
         goal.target.pose = pose
         goal.target.twist = navigator_tools.numpy_to_twist(np.zeros(3), np.zeros(3))
-        goal.goal_bias = 0.6
+        goal.goal_bias = .8
 
         print_t(pose, t())
         result = ac.send_goal(goal)
