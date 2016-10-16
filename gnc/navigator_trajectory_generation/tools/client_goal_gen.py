@@ -6,10 +6,9 @@ from txros import action
 from twisted.internet import defer
 
 import numpy as np
-import navigator_tools
+from navigator_tools import random_pose, numpy_to_twist, print_t
 from navigator_msgs.msg import MoveToWaypointAction, MoveToWaypointActionGoal, MoveToWaypointActionResult
 
-print_t = navigator_tools.print_t
 
 @txros.util.cancellableInlineCallbacks
 def main():
@@ -20,10 +19,10 @@ def main():
 
     while True:
         goal = MoveToWaypointActionGoal().goal
-        pose = navigator_tools.random_pose([-65, -110, 0], [130, 90, 0])
+        pose = random_pose([-65, -110, 0], [130, 90, 0])
 
         goal.target.pose = pose
-        goal.target.twist = navigator_tools.numpy_to_twist(np.zeros(3), np.zeros(3))
+        goal.target.twist = numpy_to_twist(np.zeros(3), np.zeros(3))
         goal.goal_bias = 0.6
 
         print_t(pose, t())

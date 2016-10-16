@@ -67,7 +67,7 @@ class Navigator(object):
         self._moveto_action_client = action.ActionClient(self.nh, 'moveto', MoveToAction)
         self._moveto_action_client2 = action.ActionClient(self.nh, 'move_to', MoveToWaypointAction)
 
-        print "NAVIGATOR: Waiting for move_to action client..."
+        #print "NAVIGATOR: Waiting for move_to action client..."
         #yield self._moveto_action_client2.wait_for_server()
 
         self._odom_sub = self.nh.subscribe('odom', Odometry,
@@ -80,9 +80,9 @@ class Navigator(object):
 
         print "NAVIGATOR: Waiting for odom..."
         yield self._odom_sub.get_next_message()  # We want to make sure odom is working before we continue
-        #yield self._ecef_odom_sub.get_next_message()
+        yield self._ecef_odom_sub.get_next_message()
 
-        #yield self._make_bounds()
+        yield self._make_bounds()
         self._make_alarms()
 
         defer.returnValue(self)
@@ -149,7 +149,7 @@ class Navigator(object):
         while True:
             # Update timestamps if the msg has a header
             if update_header and hasattr(msg, "header"):
-                msg.header = navigator_tools.make_header(frame=msg.header.frame_id)
+                msg.header.stamp = self.nh.get_time()
 
             pub.publish(msg)
             yield self.nh.sleep(1 / freq)

@@ -128,14 +128,15 @@ def main(navigator):
     msg = ogrid.get_message()
     print "publishing"
     latched = navigator.latching_publisher("/mission_ogrid", OccupancyGrid, msg)
-    print latched
 
     yield navigator.nh.sleep(5)
 
-    print "START_GATE: Moving!"
-    #yield navigator.move.set_position(setup).look_at(mid_point).go()
-    #yield navigator.move.set_position(target).go()
+    # print "START_GATE: Moving!"
+    # yield navigator.move.set_position(setup).look_at(mid_point).go()
+    # yield navigator.move.set_position(target).go()
 
+
+    latched.cancel()
     return_with(result)
 
 

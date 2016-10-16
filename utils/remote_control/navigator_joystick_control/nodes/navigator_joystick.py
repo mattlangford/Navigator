@@ -43,7 +43,7 @@ class Joystick(object):
 
         self.wrench_pub = rospy.Publisher("/wrench/rc", WrenchStamped, queue_size=1)
         self.kb = KillBroadcaster(id='station_hold', description='Resets Pose')
-        self.station_holder = rospy.ServiceProxy('/lqrrt/station_hold', SetBool)
+
         # rospy.wait_for_service('/change_wrench')
         self.wrench_changer = rospy.ServiceProxy('/change_wrench', WrenchSelect)
 
@@ -136,8 +136,8 @@ class Joystick(object):
         if station_hold == 1 and station_hold != self.last_station_hold_state:
             rospy.loginfo("Station Holding")
             self.kb.send(active=True)  # For C3
-            self.station_holder(SetBoolRequest(data=True))  # For lqrrt
-            self.kb.send(active=False) # For C3
+            rospy.Time.sleep(.1)
+            self.kb.send(active=False)
             self.wrench_changer("autonomous")
 
         # Turn on full system kill
